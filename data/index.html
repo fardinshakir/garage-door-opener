@@ -1,0 +1,357 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+  <meta charset="UTF-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1.0, user-scalable=no">
+  <meta name="theme-color" content="#000000">
+  <meta name="mobile-web-app-capable" content="yes">
+  <meta name="apple-mobile-web-app-capable" content="yes">
+  <meta name="apple-mobile-web-app-status-bar-style" content="black">
+  <meta name="apple-mobile-web-app-title" content="Garage">
+  <title>Garage</title>
+  <link rel="manifest" href="/manifest.json">
+  <link rel="apple-touch-icon" href="/icon.svg">
+  <style>
+    *, *::before, *::after { box-sizing: border-box; margin: 0; padding: 0; }
+
+    :root {
+      --bg:        #000000;
+      --surface:   #1c1c1e;
+      --surface2:  #2c2c2e;
+      --text:      #ffffff;
+      --secondary: #8e8e93;
+      --green:     #30d158;
+      --red:       #ff3b30;
+    }
+
+    body {
+      font-family: -apple-system, BlinkMacSystemFont, "SF Pro Display", "Segoe UI", sans-serif;
+      background: var(--bg);
+      color: var(--text);
+      min-height: 100dvh;
+      display: flex;
+      flex-direction: column;
+      align-items: center;
+      justify-content: center;
+      padding: max(env(safe-area-inset-top), 48px) 24px max(env(safe-area-inset-bottom), 32px);
+      gap: 0;
+      overflow: hidden;
+    }
+
+    /* ── Wordmark ──────────────────────────────────────────── */
+    .wordmark {
+      font-size: 12px;
+      font-weight: 600;
+      letter-spacing: 3.5px;
+      text-transform: uppercase;
+      color: var(--secondary);
+      margin-bottom: 28px;
+    }
+
+    /* ── Status pill ───────────────────────────────────────── */
+    .status-pill {
+      display: inline-flex;
+      align-items: center;
+      gap: 7px;
+      background: var(--surface);
+      border: 1px solid var(--surface2);
+      border-radius: 100px;
+      padding: 7px 14px 7px 10px;
+      margin-bottom: 40px;
+    }
+
+    .status-dot {
+      width: 7px;
+      height: 7px;
+      border-radius: 50%;
+      background: var(--secondary);
+      transition: background .4s;
+      flex-shrink: 0;
+    }
+
+    .status-dot.open   {
+      background: var(--green);
+      animation: pulse-green 2.5s ease-in-out infinite;
+    }
+
+    .status-label {
+      font-size: 13px;
+      font-weight: 500;
+      color: var(--secondary);
+      letter-spacing: .3px;
+      transition: color .4s;
+    }
+
+    .status-label.open { color: var(--green); }
+
+    /* ── PIN dots ──────────────────────────────────────────── */
+    .pin-dots {
+      display: flex;
+      gap: 18px;
+      margin-bottom: 36px;
+    }
+
+    .dot {
+      width: 12px;
+      height: 12px;
+      border-radius: 50%;
+      border: 1.5px solid var(--surface2);
+      background: transparent;
+      transition: background .12s, border-color .12s, transform .12s;
+    }
+
+    .dot.filled {
+      background: var(--text);
+      border-color: var(--text);
+      transform: scale(1.1);
+    }
+
+    .dot.ok    { background: var(--green); border-color: var(--green); transform: scale(1.2); }
+    .dot.wrong { background: var(--red);   border-color: var(--red);   transform: scale(1.2); }
+
+    /* ── Keypad ────────────────────────────────────────────── */
+    .keypad {
+      display: grid;
+      grid-template-columns: repeat(3, 76px);
+      grid-template-rows: repeat(4, 76px);
+      gap: 10px;
+    }
+
+    .key {
+      width: 76px;
+      height: 76px;
+      border-radius: 50%;
+      background: var(--surface);
+      border: none;
+      color: var(--text);
+      cursor: pointer;
+      display: flex;
+      flex-direction: column;
+      align-items: center;
+      justify-content: center;
+      gap: 2px;
+      -webkit-tap-highlight-color: transparent;
+      user-select: none;
+      touch-action: manipulation;
+      transition: background .1s, transform .08s, opacity .2s;
+    }
+
+    .key-num {
+      font-size: 26px;
+      font-weight: 300;
+      line-height: 1;
+    }
+
+    .key-sub {
+      font-size: 8px;
+      font-weight: 500;
+      letter-spacing: 2px;
+      color: var(--secondary);
+      text-transform: uppercase;
+      height: 9px;
+    }
+
+    .key:active { background: #3a3a3c; transform: scale(.92); }
+
+    .key.del {
+      background: transparent;
+      color: var(--secondary);
+    }
+
+    .key.ghost {
+      visibility: hidden;
+      pointer-events: none;
+    }
+
+    .keypad.disabled .key { opacity: .3; pointer-events: none; }
+
+    /* ── Spinner ───────────────────────────────────────────── */
+    .spinner {
+      width: 13px;
+      height: 13px;
+      border: 1.5px solid var(--surface2);
+      border-top-color: var(--secondary);
+      border-radius: 50%;
+      animation: spin .5s linear infinite;
+    }
+
+    /* ── Animations ────────────────────────────────────────── */
+    @keyframes spin { to { transform: rotate(360deg); } }
+
+    @keyframes pulse-green {
+      0%, 100% { opacity: 1; }
+      50%       { opacity: .4; }
+    }
+
+    @keyframes shake {
+      0%,100% { transform: translateX(0); }
+      20%     { transform: translateX(-8px); }
+      40%     { transform: translateX( 6px); }
+      60%     { transform: translateX(-5px); }
+      80%     { transform: translateX( 3px); }
+    }
+
+    .shake { animation: shake .35s cubic-bezier(.36,.07,.19,.97); }
+  </style>
+</head>
+<body>
+
+<p class="wordmark">Garage</p>
+
+<div class="status-pill">
+  <div class="status-dot" id="status-dot"></div>
+  <span class="status-label" id="status-label">—</span>
+</div>
+
+<div class="pin-dots" id="dots">
+  <div class="dot"></div>
+  <div class="dot"></div>
+  <div class="dot"></div>
+  <div class="dot"></div>
+</div>
+
+<div class="keypad" id="keypad">
+  <button class="key" onclick="tap('1')">
+    <span class="key-num">1</span><span class="key-sub"> </span>
+  </button>
+  <button class="key" onclick="tap('2')">
+    <span class="key-num">2</span><span class="key-sub">abc</span>
+  </button>
+  <button class="key" onclick="tap('3')">
+    <span class="key-num">3</span><span class="key-sub">def</span>
+  </button>
+
+  <button class="key" onclick="tap('4')">
+    <span class="key-num">4</span><span class="key-sub">ghi</span>
+  </button>
+  <button class="key" onclick="tap('5')">
+    <span class="key-num">5</span><span class="key-sub">jkl</span>
+  </button>
+  <button class="key" onclick="tap('6')">
+    <span class="key-num">6</span><span class="key-sub">mno</span>
+  </button>
+
+  <button class="key" onclick="tap('7')">
+    <span class="key-num">7</span><span class="key-sub">pqrs</span>
+  </button>
+  <button class="key" onclick="tap('8')">
+    <span class="key-num">8</span><span class="key-sub">tuv</span>
+  </button>
+  <button class="key" onclick="tap('9')">
+    <span class="key-num">9</span><span class="key-sub">wxyz</span>
+  </button>
+
+  <button class="key ghost"></button>
+  <button class="key" onclick="tap('0')">
+    <span class="key-num">0</span><span class="key-sub"> </span>
+  </button>
+  <button class="key del" onclick="del()">
+    <span class="key-num">⌫</span>
+  </button>
+</div>
+
+<script>
+  const PIN_LENGTH = 4;
+  let pin  = '';
+  let busy = false;
+
+  function renderDots(state) {
+    document.querySelectorAll('#dots .dot').forEach((d, i) => {
+      d.className = 'dot';
+      if (state)               d.classList.add(state);
+      else if (i < pin.length) d.classList.add('filled');
+    });
+  }
+
+  function tap(digit) {
+    if (busy || pin.length >= PIN_LENGTH) return;
+    pin += digit;
+    renderDots();
+    if (pin.length === PIN_LENGTH) submit();
+  }
+
+  function del() {
+    if (busy) return;
+    pin = pin.slice(0, -1);
+    renderDots();
+  }
+
+  async function submit() {
+    busy = true;
+    document.getElementById('keypad').classList.add('disabled');
+
+    const dotsEl = document.getElementById('dots');
+    dotsEl.innerHTML = '<div class="spinner"></div>';
+
+    try {
+      const r = await fetch('/api/press', {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ password: pin }),
+      });
+
+      restoreDots();
+
+      if (r.ok) {
+        renderDots('ok');
+        await pause(800);
+        updateStatus();
+      } else {
+        renderDots('wrong');
+        dotsEl.classList.add('shake');
+        await pause(600);
+        dotsEl.classList.remove('shake');
+        await pause(150);
+      }
+    } catch {
+      restoreDots();
+      renderDots('wrong');
+      dotsEl.classList.add('shake');
+      await pause(600);
+      dotsEl.classList.remove('shake');
+    }
+
+    pin  = '';
+    busy = false;
+    renderDots();
+    document.getElementById('keypad').classList.remove('disabled');
+  }
+
+  function restoreDots() {
+    document.getElementById('dots').innerHTML =
+      '<div class="dot"></div>'.repeat(PIN_LENGTH);
+  }
+
+  const pause = ms => new Promise(r => setTimeout(r, ms));
+
+  async function updateStatus() {
+    const dot   = document.getElementById('status-dot');
+    const label = document.getElementById('status-label');
+    try {
+      const r = await fetch('/api/status');
+      if (!r.ok) throw new Error();
+      const { open } = await r.json();
+      dot.className     = 'status-dot ' + (open ? 'open' : '');
+      label.className   = 'status-label' + (open ? ' open' : '');
+      label.textContent = open ? 'Open' : 'Closed';
+    } catch {
+      dot.className     = 'status-dot';
+      label.className   = 'status-label';
+      label.textContent = 'Offline';
+    }
+  }
+
+  updateStatus();
+  setInterval(updateStatus, 5000);
+
+  document.addEventListener('keydown', e => {
+    if (e.key >= '0' && e.key <= '9') tap(e.key);
+    else if (e.key === 'Backspace')    del();
+  });
+
+  if ('serviceWorker' in navigator) {
+    navigator.serviceWorker.register('/sw.js').catch(() => {});
+  }
+</script>
+</body>
+</html>

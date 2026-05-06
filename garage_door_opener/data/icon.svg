@@ -1,0 +1,12 @@
+<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 512 512">
+  <rect width="512" height="512" rx="112" fill="#1a1a1a"/>
+  <g stroke="#ffffff" stroke-width="28" stroke-linecap="round" stroke-linejoin="round" fill="none">
+    <!-- House outline -->
+    <path d="M100 224L256 100l156 124V420a8 8 0 01-8 8H108a8 8 0 01-8-8V224z"/>
+    <!-- Door panel lines -->
+    <line x1="100" y1="278" x2="412" y2="278"/>
+    <line x1="100" y1="348" x2="412" y2="348"/>
+    <!-- Chimney stub -->
+    <path d="M256 100V76M226 76h60"/>
+  </g>
+</svg>

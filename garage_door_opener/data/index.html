@@ -1,0 +1,283 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+  <meta charset="UTF-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1.0, user-scalable=no">
+  <meta name="theme-color" content="#0d0d0d">
+  <meta name="mobile-web-app-capable" content="yes">
+  <meta name="apple-mobile-web-app-capable" content="yes">
+  <meta name="apple-mobile-web-app-status-bar-style" content="black">
+  <meta name="apple-mobile-web-app-title" content="Garage">
+  <title>Garage</title>
+  <link rel="manifest" href="/manifest.json">
+  <link rel="apple-touch-icon" href="/icon.svg">
+  <style>
+    *, *::before, *::after { box-sizing: border-box; margin: 0; padding: 0; }
+
+    :root {
+      --bg:      #0d0d0d;
+      --surface: #1c1c1c;
+      --border:  #2a2a2a;
+      --text:    #ffffff;
+      --muted:   #555;
+      --green:   #30d158;
+      --red:     #ff3b30;
+    }
+
+    body {
+      font-family: -apple-system, BlinkMacSystemFont, "Segoe UI", Helvetica, Arial, sans-serif;
+      background: var(--bg);
+      color: var(--text);
+      height: 100dvh;
+      display: flex;
+      flex-direction: column;
+      align-items: center;
+      justify-content: center;
+      overflow: hidden;
+      gap: 32px;
+      padding: 24px;
+    }
+
+    /* ── Title ─────────────────────────────────────────────── */
+    .title {
+      font-size: 15px;
+      font-weight: 600;
+      letter-spacing: 2px;
+      text-transform: uppercase;
+      color: var(--muted);
+    }
+
+    /* ── PIN dots ──────────────────────────────────────────── */
+    .pin-display {
+      display: flex;
+      gap: 14px;
+      min-height: 18px;
+      align-items: center;
+      justify-content: center;
+    }
+
+    .dot {
+      width: 12px;
+      height: 12px;
+      border-radius: 50%;
+      border: 2px solid #333;
+      transition: background .1s, border-color .1s;
+    }
+
+    .dot.filled {
+      background: var(--text);
+      border-color: var(--text);
+    }
+
+    .dot.ok    { background: var(--green); border-color: var(--green); }
+    .dot.wrong { background: var(--red);   border-color: var(--red); }
+
+    /* ── Keypad ────────────────────────────────────────────── */
+    .keypad {
+      display: grid;
+      grid-template-columns: repeat(3, 72px);
+      grid-template-rows: repeat(4, 72px);
+      gap: 12px;
+    }
+
+    .key {
+      width: 72px;
+      height: 72px;
+      border-radius: 50%;
+      background: var(--surface);
+      border: none;
+      color: var(--text);
+      font-size: 22px;
+      font-weight: 500;
+      cursor: pointer;
+      display: flex;
+      flex-direction: column;
+      align-items: center;
+      justify-content: center;
+      gap: 1px;
+      transition: background .1s, transform .08s;
+      -webkit-tap-highlight-color: transparent;
+      user-select: none;
+      touch-action: manipulation;
+    }
+
+    .key sub {
+      font-size: 8px;
+      letter-spacing: 1.5px;
+      color: var(--muted);
+      text-transform: uppercase;
+    }
+
+    .key:active { background: #2e2e2e; transform: scale(.92); }
+
+    /* Delete key */
+    .key.del {
+      background: transparent;
+      font-size: 20px;
+      color: var(--muted);
+    }
+
+    /* Submit key */
+    .key.submit {
+      background: var(--text);
+      color: var(--bg);
+    }
+
+    .key.submit:active { background: #ccc; }
+
+    .key.submit.busy {
+      background: var(--surface);
+      pointer-events: none;
+    }
+
+    .key.submit.busy .submit-icon { display: none; }
+    .key.submit.busy .spinner     { display: block; }
+    .key.submit .spinner          { display: none; }
+
+    /* Disabled state while submitting */
+    .keypad.disabled .key:not(.submit) { pointer-events: none; opacity: .4; }
+
+    /* ── Spinner ───────────────────────────────────────────── */
+    .spinner {
+      width: 20px;
+      height: 20px;
+      border: 2px solid #444;
+      border-top-color: var(--text);
+      border-radius: 50%;
+      animation: spin .5s linear infinite;
+    }
+
+    /* ── Animations ────────────────────────────────────────── */
+    @keyframes spin  { to { transform: rotate(360deg); } }
+
+    @keyframes shake {
+      0%,100% { transform: translateX(0); }
+      20%     { transform: translateX(-10px); }
+      40%     { transform: translateX( 8px); }
+      60%     { transform: translateX(-6px); }
+      80%     { transform: translateX( 4px); }
+    }
+
+    .shake { animation: shake .35s ease; }
+  </style>
+</head>
+<body>
+
+<p class="title">Garage</p>
+
+<div class="pin-display" id="dots"></div>
+
+<div class="keypad" id="keypad">
+  <!-- Row 1 -->
+  <button class="key" onclick="tap('1')">1</button>
+  <button class="key" onclick="tap('2')">2<sub>abc</sub></button>
+  <button class="key" onclick="tap('3')">3<sub>def</sub></button>
+  <!-- Row 2 -->
+  <button class="key" onclick="tap('4')">4<sub>ghi</sub></button>
+  <button class="key" onclick="tap('5')">5<sub>jkl</sub></button>
+  <button class="key" onclick="tap('6')">6<sub>mno</sub></button>
+  <!-- Row 3 -->
+  <button class="key" onclick="tap('7')">7<sub>pqrs</sub></button>
+  <button class="key" onclick="tap('8')">8<sub>tuv</sub></button>
+  <button class="key" onclick="tap('9')">9<sub>wxyz</sub></button>
+  <!-- Row 4 -->
+  <button class="key del" onclick="del()">⌫</button>
+  <button class="key" onclick="tap('0')">0</button>
+  <button class="key submit" id="submit-btn" onclick="submit()">
+    <span class="submit-icon">
+      <!-- Arrow right / enter icon -->
+      <svg width="22" height="22" viewBox="0 0 24 24" fill="none"
+           stroke="currentColor" stroke-width="2.2"
+           stroke-linecap="round" stroke-linejoin="round">
+        <polyline points="9 18 15 12 9 6"/>
+      </svg>
+    </span>
+    <div class="spinner"></div>
+  </button>
+</div>
+
+<script>
+  const MAX = 8;
+  let pin = '';
+  let busy = false;
+
+  function renderDots() {
+    const el = document.getElementById('dots');
+    if (pin.length === 0) { el.innerHTML = ''; return; }
+    el.innerHTML = Array.from({ length: pin.length }, () =>
+      '<div class="dot filled"></div>'
+    ).join('');
+  }
+
+  function tap(digit) {
+    if (busy || pin.length >= MAX) return;
+    pin += digit;
+    renderDots();
+  }
+
+  function del() {
+    if (busy) return;
+    pin = pin.slice(0, -1);
+    renderDots();
+  }
+
+  async function submit() {
+    if (busy || pin.length === 0) return;
+    busy = true;
+
+    const keypad = document.getElementById('keypad');
+    const sbtn   = document.getElementById('submit-btn');
+    keypad.classList.add('disabled');
+    sbtn.classList.add('busy');
+
+    try {
+      const r = await fetch('/api/press', {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ password: pin }),
+      });
+
+      if (r.ok) {
+        flashDots('ok');
+      } else {
+        flashDots('wrong');
+      }
+    } catch {
+      flashDots('wrong');
+    } finally {
+      pin = '';
+      keypad.classList.remove('disabled');
+      sbtn.classList.remove('busy');
+      busy = false;
+    }
+  }
+
+  function flashDots(state) {
+    const dotsEl = document.getElementById('dots');
+    const dots = dotsEl.querySelectorAll('.dot');
+    dots.forEach(d => d.classList.add(state));
+
+    if (state === 'wrong') {
+      dotsEl.classList.add('shake');
+      dotsEl.addEventListener('animationend', () => {
+        dotsEl.classList.remove('shake');
+        renderDots();
+      }, { once: true });
+    } else {
+      setTimeout(renderDots, 800);
+    }
+  }
+
+  // Hardware keyboard support (useful on desktop / when BT keyboard attached)
+  document.addEventListener('keydown', e => {
+    if (e.key >= '0' && e.key <= '9') tap(e.key);
+    else if (e.key === 'Backspace')    del();
+    else if (e.key === 'Enter')        submit();
+  });
+
+  if ('serviceWorker' in navigator) {
+    navigator.serviceWorker.register('/sw.js').catch(() => {});
+  }
+</script>
+</body>
+</html>
