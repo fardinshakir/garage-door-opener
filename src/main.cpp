@@ -5,7 +5,6 @@
 #include <ESP32Servo.h>
 #include <ESPmDNS.h>
 
-// Values injected from .env at build time
 #ifndef WIFI_SSID
 #  error "WIFI_SSID not set — copy .env.example to .env and fill it in"
 #endif
@@ -18,18 +17,23 @@
 
 // ─── Hardware config ──────────────────────────────────────────────────────────
 #define SERVO_PIN       13
-#define SERVO_REST_DEG  0    // Resting angle — arm clear of button
-#define SERVO_PRESS_DEG 60   // Pressing angle — tune this to your mount
-#define PRESS_HOLD_MS   400  // How long to hold the button (ms)
+#define SERVO_REST_DEG  0
+#define SERVO_PRESS_DEG 30
+#define PRESS_HOLD_MS   400
+#define COOLDOWN_MS     20000
 
-#define HOSTNAME        "garage"   // http://garage.local
+#define HOSTNAME        "garage"
 // ─────────────────────────────────────────────────────────────────────────────
 
-static bool g_pressing = false;
-static bool g_doorOpen = false;   // software-toggled; add a reed switch for real state
+static bool          g_pressing      = false;
+static bool          g_doorOpen      = false;
+static unsigned long g_cooldownUntil = 0;
+static bool          g_testPending   = false;
+static bool          g_pressPending  = false;
 
-AsyncWebServer server(80);
-Servo          servo;
+AsyncWebServer   server(80);
+AsyncEventSource events("/api/events");
+Servo            servo;
 
 // ─── Helpers ──────────────────────────────────────────────────────────────────
 
@@ -54,12 +58,46 @@ bool safeEquals(const String& a, const String& b) {
   return diff == 0;
 }
 
+String stateJson() {
+  bool inCooldown = millis() < g_cooldownUntil;
+  unsigned long remaining = inCooldown ? (g_cooldownUntil - millis()) : 0;
+  return String("{\"open\":") + (g_doorOpen ? "true" : "false") +
+         ",\"cooldown\":" + (inCooldown ? "true" : "false") +
+         ",\"remaining\":" + remaining + "}";
+}
+
+void broadcastState() {
+  events.send(stateJson().c_str(), "state", millis());
+}
+
+void servoSweep(int from, int to, int durationMs) {
+  int steps = abs(to - from);
+  if (steps == 0) return;
+  int delayPerStep = durationMs / steps;
+  int dir = (to > from) ? 1 : -1;
+  for (int pos = from; pos != to; pos += dir) {
+    servo.write(pos);
+    delay(delayPerStep);
+  }
+  servo.write(to);
+}
+
+#define PRESS_TIMEOUT_MS 5000
+
 void pressButton() {
   if (g_pressing) return;
   g_pressing = true;
-  servo.write(SERVO_PRESS_DEG);
+  unsigned long start = millis();
+
+  servoSweep(SERVO_REST_DEG, SERVO_PRESS_DEG, 1000);
   delay(PRESS_HOLD_MS);
-  servo.write(SERVO_REST_DEG);
+  servoSweep(SERVO_PRESS_DEG, SERVO_REST_DEG, 1000);
+
+  if (millis() - start >= PRESS_TIMEOUT_MS) {
+    servo.write(SERVO_REST_DEG);
+    Serial.println("[Servo] Timeout — forced return to rest");
+  }
+
   g_doorOpen = !g_doorOpen;
   g_pressing = false;
 }
@@ -105,13 +143,28 @@ void setup() {
     r->send(SPIFFS, "/icon.svg", "image/svg+xml");
   });
 
-  // GET /api/status
+  // GET /api/status — kept for fallback
   server.on("/api/status", HTTP_GET, [](AsyncWebServerRequest* r) {
-    String body = g_doorOpen ? "{\"open\":true}" : "{\"open\":false}";
-    r->send(200, "application/json", body);
+    r->send(200, "application/json", stateJson());
   });
 
-  // POST /api/press — verify PIN and fire servo
+  // SSE — send current state to each new client on connect
+  events.onConnect([](AsyncEventSourceClient* client) {
+    client->send(stateJson().c_str(), "state", millis(), 1000);
+  });
+  server.addHandler(&events);
+
+  // POST /api/test
+  server.on("/api/test", HTTP_POST, [](AsyncWebServerRequest* r) {
+    if (g_pressing || millis() < g_cooldownUntil) {
+      r->send(429, "application/json", "{\"error\":\"busy\"}");
+      return;
+    }
+    g_testPending = true;
+    r->send(200, "application/json", "{\"ok\":true}");
+  });
+
+  // POST /api/press
   server.on("/api/press", HTTP_POST,
     [](AsyncWebServerRequest*) {},
     nullptr,
@@ -124,14 +177,13 @@ void setup() {
         Serial.println("[Press] Wrong PIN");
         return;
       }
-      if (g_pressing) {
+      if (g_pressing || millis() < g_cooldownUntil) {
         r->send(429, "application/json", "{\"error\":\"busy\"}");
         return;
       }
 
+      g_pressPending = true;
       r->send(200, "application/json", "{\"ok\":true}");
-      Serial.println("[Press] Activating servo");
-      pressButton();
     }
   );
 
@@ -143,4 +195,36 @@ void setup() {
   Serial.println("[Server] Ready");
 }
 
-void loop() {}
+void loop() {
+  static bool          wasCooling    = false;
+  static unsigned long lastBroadcast = 0;
+
+  if (g_pressPending) {
+    g_pressPending = false;
+    Serial.println("[Press] Activating servo");
+    g_cooldownUntil = millis() + COOLDOWN_MS;
+    broadcastState();
+    pressButton();
+  }
+
+  if (g_testPending) {
+    g_testPending = false;
+    Serial.println("[Test] Sweeping servo");
+    g_pressing = true;
+    servoSweep(SERVO_REST_DEG, SERVO_PRESS_DEG, 1000);
+    delay(PRESS_HOLD_MS);
+    servoSweep(SERVO_PRESS_DEG, SERVO_REST_DEG, 1000);
+    g_pressing = false;
+  }
+
+  bool isCooling = millis() < g_cooldownUntil;
+  if (isCooling && millis() - lastBroadcast >= 1000) {
+    broadcastState();
+    lastBroadcast = millis();
+  }
+  if (wasCooling && !isCooling) {
+    broadcastState();
+    lastBroadcast = millis();
+  }
+  wasCooling = isCooling;
+}

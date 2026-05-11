@@ -165,6 +165,25 @@
 
     .keypad.disabled .key { opacity: .3; pointer-events: none; }
 
+    /* ── Test button ───────────────────────────────────────── */
+    .test-btn {
+      margin-top: 28px;
+      padding: 10px 24px;
+      border-radius: 100px;
+      border: 1px solid var(--surface2);
+      background: var(--surface);
+      color: var(--secondary);
+      font-size: 13px;
+      font-weight: 500;
+      letter-spacing: .4px;
+      cursor: pointer;
+      transition: opacity .2s;
+      -webkit-tap-highlight-color: transparent;
+    }
+
+    .test-btn:active { opacity: .6; }
+    .test-btn:disabled { opacity: .3; pointer-events: none; }
+
     /* ── Spinner ───────────────────────────────────────────── */
     .spinner {
       width: 13px;
@@ -192,6 +211,39 @@
     }
 
     .shake { animation: shake .35s cubic-bezier(.36,.07,.19,.97); }
+
+    /* ── Cooldown ring ─────────────────────────────────────── */
+    .cooldown-wrap {
+      display: flex;
+      flex-direction: column;
+      align-items: center;
+      gap: 10px;
+      margin-bottom: 36px;
+    }
+
+    .cooldown-ring {
+      width: 52px;
+      height: 52px;
+      border-radius: 50%;
+      display: flex;
+      align-items: center;
+      justify-content: center;
+    }
+
+    .cooldown-ring::after {
+      content: '';
+      width: 38px;
+      height: 38px;
+      border-radius: 50%;
+      background: var(--bg);
+    }
+
+    .cooldown-label {
+      font-size: 12px;
+      font-weight: 500;
+      letter-spacing: .5px;
+      color: var(--secondary);
+    }
   </style>
 </head>
 <body>
@@ -250,10 +302,15 @@
   </button>
 </div>
 
+<button class="test-btn" id="test-btn" onclick="testServo()">Test Servo</button>
+
 <script>
-  const PIN_LENGTH = 4;
-  let pin  = '';
-  let busy = false;
+  const PIN_LENGTH    = 4;
+  const COOLDOWN_TOTAL = 20000;
+  let pin               = '';
+  let busy              = false;
+  let cooldownAnimating = false;
+  let cooldownRemaining = 0;   // corrected each second by SSE
 
   function renderDots(state) {
     document.querySelectorAll('#dots .dot').forEach((d, i) => {
@@ -261,6 +318,11 @@
       if (state)               d.classList.add(state);
       else if (i < pin.length) d.classList.add('filled');
     });
+  }
+
+  function restoreDots() {
+    document.getElementById('dots').innerHTML =
+      '<div class="dot"></div>'.repeat(PIN_LENGTH);
   }
 
   function tap(digit) {
@@ -279,23 +341,22 @@
   async function submit() {
     busy = true;
     document.getElementById('keypad').classList.add('disabled');
-
     const dotsEl = document.getElementById('dots');
     dotsEl.innerHTML = '<div class="spinner"></div>';
 
+    let success = false;
     try {
       const r = await fetch('/api/press', {
         method: 'POST',
         headers: { 'Content-Type': 'application/json' },
         body: JSON.stringify({ password: pin }),
       });
-
       restoreDots();
-
+      success = r.ok;
       if (r.ok) {
         renderDots('ok');
         await pause(800);
-        updateStatus();
+        // SSE broadcast from server will trigger cooldown on all devices
       } else {
         renderDots('wrong');
         dotsEl.classList.add('shake');
@@ -311,38 +372,95 @@
       dotsEl.classList.remove('shake');
     }
 
-    pin  = '';
-    busy = false;
-    renderDots();
-    document.getElementById('keypad').classList.remove('disabled');
+    pin = '';
+    if (!success) {
+      busy = false;
+      restoreDots();
+      renderDots();
+      document.getElementById('keypad').classList.remove('disabled');
+    }
+    // On success: stay locked — SSE handler re-enables after cooldown
   }
 
-  function restoreDots() {
-    document.getElementById('dots').innerHTML =
-      '<div class="dot"></div>'.repeat(PIN_LENGTH);
+  function startCooldownAnimation(label) {
+    const dotsEl = document.getElementById('dots');
+    dotsEl.innerHTML = `
+      <div class="cooldown-wrap">
+        <div class="cooldown-ring" id="cooldown-ring"></div>
+        <span class="cooldown-label">${label}&hellip;</span>
+      </div>`;
+    const ring  = document.getElementById('cooldown-ring');
+    const color = label === 'Opening' ? 'var(--green)' : 'var(--red)';
+    return new Promise(resolve => {
+      let lastTime = performance.now();
+      function tick(now) {
+        const delta = now - lastTime;
+        lastTime = now;
+        cooldownRemaining = Math.max(0, cooldownRemaining - delta);
+        const frac = cooldownRemaining / COOLDOWN_TOTAL;
+        ring.style.background =
+          `conic-gradient(${color} ${frac * 360}deg, var(--surface2) 0deg)`;
+        if (cooldownRemaining > 0) requestAnimationFrame(tick);
+        else resolve();
+      }
+      requestAnimationFrame(tick);
+    });
+  }
+
+  async function testServo() {
+    const btn = document.getElementById('test-btn');
+    btn.disabled = true;
+    btn.textContent = 'Testing…';
+    try {
+      await fetch('/api/test', { method: 'POST' });
+    } catch {}
+    btn.disabled = false;
+    btn.textContent = 'Test Servo';
+  }
+
+  function updateStatusUI(open) {
+    const dot   = document.getElementById('status-dot');
+    const label = document.getElementById('status-label');
+    dot.className     = 'status-dot' + (open ? ' open' : '');
+    label.className   = 'status-label' + (open ? ' open' : '');
+    label.textContent = open ? 'Open' : 'Closed';
   }
 
   const pause = ms => new Promise(r => setTimeout(r, ms));
 
-  async function updateStatus() {
-    const dot   = document.getElementById('status-dot');
-    const label = document.getElementById('status-label');
-    try {
-      const r = await fetch('/api/status');
-      if (!r.ok) throw new Error();
-      const { open } = await r.json();
-      dot.className     = 'status-dot ' + (open ? 'open' : '');
-      label.className   = 'status-label' + (open ? ' open' : '');
-      label.textContent = open ? 'Open' : 'Closed';
-    } catch {
-      dot.className     = 'status-dot';
-      label.className   = 'status-label';
-      label.textContent = 'Offline';
-    }
-  }
+  // ── SSE — single source of truth for all devices ──────────────────────────
+  const evtSource = new EventSource('/api/events');
 
-  updateStatus();
-  setInterval(updateStatus, 5000);
+  evtSource.addEventListener('state', async e => {
+    const { open, cooldown, remaining } = JSON.parse(e.data);
+    updateStatusUI(open);
+
+    if (cooldown) {
+      cooldownRemaining = remaining;
+      document.getElementById('test-btn').disabled = true;
+      if (!cooldownAnimating) {
+        cooldownAnimating = true;
+        busy = true;
+        document.getElementById('keypad').classList.add('disabled');
+        await startCooldownAnimation(open ? 'Opening' : 'Closing');
+        cooldownAnimating = false;
+        busy = false;
+        restoreDots();
+        renderDots();
+        document.getElementById('keypad').classList.remove('disabled');
+        document.getElementById('test-btn').disabled = false;
+      }
+    } else {
+      cooldownRemaining = 0;
+      document.getElementById('test-btn').disabled = false;
+    }
+  });
+
+  evtSource.onerror = () => {
+    document.getElementById('status-dot').className   = 'status-dot';
+    document.getElementById('status-label').className = 'status-label';
+    document.getElementById('status-label').textContent = 'Offline';
+  };
 
   document.addEventListener('keydown', e => {
     if (e.key >= '0' && e.key <= '9') tap(e.key);
