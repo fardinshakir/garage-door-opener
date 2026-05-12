@@ -21,7 +21,7 @@ Servo brown  (GND)    → GND
 
 ### 1. Install PlatformIO
 
-Install the [PlatformIO extension for VS Code](https://platformio.org/install/ide?install=vscode). That's it — it handles all libraries and toolchains automatically.
+Install the [PlatformIO extension for VS Code](https://platformio.org/install/ide?install=vscode).
 
 ### 2. Configure `.env`
 
