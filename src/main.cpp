@@ -2,7 +2,6 @@
 #include <WiFi.h>
 #include <ESPAsyncWebServer.h>
 #include <SPIFFS.h>
-#include <ESP32Servo.h>
 #include <ESPmDNS.h>
 
 #ifndef WIFI_SSID
@@ -16,10 +15,8 @@
 #endif
 
 // ─── Hardware config ──────────────────────────────────────────────────────────
-#define SERVO_PIN       13
-#define SERVO_REST_DEG  0
-#define SERVO_PRESS_DEG 30
-#define PRESS_HOLD_MS   400
+#define BUTTON_PIN      13
+#define PRESS_HOLD_MS   1000
 #define COOLDOWN_MS     20000
 
 #define HOSTNAME        "garage"
@@ -31,9 +28,8 @@ static unsigned long g_cooldownUntil = 0;
 static bool          g_testPending   = false;
 static bool          g_pressPending  = false;
 
-AsyncWebServer   server(80);
+AsyncWebServer   server(2582);
 AsyncEventSource events("/api/events");
-Servo            servo;
 
 // ─── Helpers ──────────────────────────────────────────────────────────────────
 
@@ -70,33 +66,13 @@ void broadcastState() {
   events.send(stateJson().c_str(), "state", millis());
 }
 
-void servoSweep(int from, int to, int durationMs) {
-  int steps = abs(to - from);
-  if (steps == 0) return;
-  int delayPerStep = durationMs / steps;
-  int dir = (to > from) ? 1 : -1;
-  for (int pos = from; pos != to; pos += dir) {
-    servo.write(pos);
-    delay(delayPerStep);
-  }
-  servo.write(to);
-}
-
-#define PRESS_TIMEOUT_MS 5000
-
 void pressButton() {
   if (g_pressing) return;
   g_pressing = true;
-  unsigned long start = millis();
 
-  servoSweep(SERVO_REST_DEG, SERVO_PRESS_DEG, 1000);
+  digitalWrite(BUTTON_PIN, HIGH);
   delay(PRESS_HOLD_MS);
-  servoSweep(SERVO_PRESS_DEG, SERVO_REST_DEG, 1000);
-
-  if (millis() - start >= PRESS_TIMEOUT_MS) {
-    servo.write(SERVO_REST_DEG);
-    Serial.println("[Servo] Timeout — forced return to rest");
-  }
+  digitalWrite(BUTTON_PIN, LOW);
 
   g_doorOpen = !g_doorOpen;
   g_pressing = false;
@@ -112,8 +88,8 @@ void setup() {
     return;
   }
 
-  servo.attach(SERVO_PIN);
-  servo.write(SERVO_REST_DEG);
+  pinMode(BUTTON_PIN, OUTPUT);
+  digitalWrite(BUTTON_PIN, LOW);
 
   WiFi.begin(WIFI_SSID, WIFI_PASSWORD);
   Serial.print("[WiFi] Connecting");
@@ -209,11 +185,11 @@ void loop() {
 
   if (g_testPending) {
     g_testPending = false;
-    Serial.println("[Test] Sweeping servo");
+    Serial.println("[Test] Pulsing button pin");
     g_pressing = true;
-    servoSweep(SERVO_REST_DEG, SERVO_PRESS_DEG, 1000);
+    digitalWrite(BUTTON_PIN, HIGH);
     delay(PRESS_HOLD_MS);
-    servoSweep(SERVO_PRESS_DEG, SERVO_REST_DEG, 1000);
+    digitalWrite(BUTTON_PIN, LOW);
     g_pressing = false;
   }
 
