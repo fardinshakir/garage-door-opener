@@ -25,7 +25,6 @@
 static bool          g_pressing      = false;
 static bool          g_doorOpen      = false;
 static unsigned long g_cooldownUntil = 0;
-static bool          g_testPending   = false;
 static bool          g_pressPending  = false;
 
 AsyncWebServer   server(2582);
@@ -130,16 +129,6 @@ void setup() {
   });
   server.addHandler(&events);
 
-  // POST /api/test
-  server.on("/api/test", HTTP_POST, [](AsyncWebServerRequest* r) {
-    if (g_pressing || millis() < g_cooldownUntil) {
-      r->send(429, "application/json", "{\"error\":\"busy\"}");
-      return;
-    }
-    g_testPending = true;
-    r->send(200, "application/json", "{\"ok\":true}");
-  });
-
   // POST /api/press
   server.on("/api/press", HTTP_POST,
     [](AsyncWebServerRequest*) {},
@@ -181,16 +170,6 @@ void loop() {
     g_cooldownUntil = millis() + COOLDOWN_MS;
     broadcastState();
     pressButton();
-  }
-
-  if (g_testPending) {
-    g_testPending = false;
-    Serial.println("[Test] Pulsing button pin");
-    g_pressing = true;
-    digitalWrite(BUTTON_PIN, HIGH);
-    delay(PRESS_HOLD_MS);
-    digitalWrite(BUTTON_PIN, LOW);
-    g_pressing = false;
   }
 
   bool isCooling = millis() < g_cooldownUntil;
