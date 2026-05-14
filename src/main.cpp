@@ -98,6 +98,7 @@ void setup() {
   }
   Serial.printf("\n[WiFi] Connected: http://%s.local  (%s)\n",
                 HOSTNAME, WiFi.localIP().toString().c_str());
+  Serial.printf("[WiFi] RSSI: %d dBm\n", WiFi.RSSI());
 
   if (MDNS.begin(HOSTNAME))
     Serial.printf("[mDNS] http://%s.local\n", HOSTNAME);
@@ -166,7 +167,7 @@ void loop() {
 
   if (g_pressPending) {
     g_pressPending = false;
-    Serial.println("[Press] Activating servo");
+    Serial.println("[Press] Activating button");
     g_cooldownUntil = millis() + COOLDOWN_MS;
     broadcastState();
     pressButton();
