@@ -68,6 +68,8 @@ void setup() {
   servo.attach(SERVO_PIN);
   servo.write(SERVO_REST_DEG);
 
+  WiFi.setSleep(false);
+  WiFi.setAutoReconnect(true);
   WiFi.begin(WIFI_SSID, WIFI_PASSWORD);
   Serial.print("[WiFi] Connecting");
   while (WiFi.status() != WL_CONNECTED) {
@@ -130,5 +132,26 @@ void setup() {
 }
 
 void loop() {
-  // ESPAsyncWebServer is fully async — nothing needed here
+  static unsigned long lastCheck = 0;
+  unsigned long now = millis();
+
+  if (now - lastCheck < 10000) return;
+  lastCheck = now;
+
+  if (WiFi.status() != WL_CONNECTED) {
+    Serial.println("[WiFi] Disconnected — reconnecting...");
+    WiFi.disconnect();
+    WiFi.begin(WIFI_SSID, WIFI_PASSWORD);
+
+    unsigned long deadline = millis() + 15000;
+    while (WiFi.status() != WL_CONNECTED && millis() < deadline)
+      delay(500);
+
+    if (WiFi.status() == WL_CONNECTED) {
+      Serial.printf("[WiFi] Reconnected: %s\n", WiFi.localIP().toString().c_str());
+      MDNS.begin(HOSTNAME);
+    } else {
+      Serial.println("[WiFi] Reconnect failed — will retry");
+    }
+  }
 }
