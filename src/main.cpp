@@ -3,6 +3,7 @@
 #include <ESPAsyncWebServer.h>
 #include <SPIFFS.h>
 #include <ESPmDNS.h>
+#include <ArduinoOTA.h>
 
 #ifndef WIFI_SSID
 #  error "WIFI_SSID not set — copy .env.example to .env and fill it in"
@@ -22,10 +23,12 @@
 #define HOSTNAME        "garage"
 // ─────────────────────────────────────────────────────────────────────────────
 
-static bool          g_pressing      = false;
-static bool          g_doorOpen      = false;
-static unsigned long g_cooldownUntil = 0;
-static bool          g_pressPending  = false;
+static bool          g_pressing        = false;
+static bool          g_doorOpen        = false;
+static unsigned long g_cooldownUntil   = 0;
+static bool          g_pressPending    = false;
+static unsigned long g_lastSensorMs    = 0;
+#define SENSOR_TIMEOUT_MS 15000  // sensor considered offline after 15s with no update
 
 AsyncWebServer   server(2582);
 AsyncEventSource events("/api/events");
@@ -56,9 +59,11 @@ bool safeEquals(const String& a, const String& b) {
 String stateJson() {
   bool inCooldown = millis() < g_cooldownUntil;
   unsigned long remaining = inCooldown ? (g_cooldownUntil - millis()) : 0;
+  bool sensorOnline = g_lastSensorMs > 0 && (millis() - g_lastSensorMs < SENSOR_TIMEOUT_MS);
   return String("{\"open\":") + (g_doorOpen ? "true" : "false") +
          ",\"cooldown\":" + (inCooldown ? "true" : "false") +
-         ",\"remaining\":" + remaining + "}";
+         ",\"remaining\":" + remaining +
+         ",\"sensorOnline\":" + (sensorOnline ? "true" : "false") + "}";
 }
 
 void broadcastState() {
@@ -68,12 +73,9 @@ void broadcastState() {
 void pressButton() {
   if (g_pressing) return;
   g_pressing = true;
-
   digitalWrite(BUTTON_PIN, HIGH);
   delay(PRESS_HOLD_MS);
   digitalWrite(BUTTON_PIN, LOW);
-
-  g_doorOpen = !g_doorOpen;
   g_pressing = false;
 }
 
@@ -130,6 +132,23 @@ void setup() {
   });
   server.addHandler(&events);
 
+  // POST /api/sensor — called by sensor ESP32 with {"open":bool,"distance_cm":float}
+  server.on("/api/sensor", HTTP_POST,
+    [](AsyncWebServerRequest*) {},
+    nullptr,
+    [](AsyncWebServerRequest* r, uint8_t* data, size_t len, size_t, size_t) {
+      String body = String((char*)data, len);
+      bool sensorOpen = body.indexOf("\"open\":true") >= 0;
+      g_lastSensorMs = millis();
+      if (sensorOpen != g_doorOpen) {
+        g_doorOpen = sensorOpen;
+        Serial.printf("[Sensor] State updated → %s\n", g_doorOpen ? "open" : "closed");
+      }
+      broadcastState();
+      r->send(200, "application/json", "{\"ok\":true}");
+    }
+  );
+
   // POST /api/press
   server.on("/api/press", HTTP_POST,
     [](AsyncWebServerRequest*) {},
@@ -157,11 +176,17 @@ void setup() {
     r->send(404, "text/plain", "Not found");
   });
 
+  ArduinoOTA.setHostname(HOSTNAME);
+  ArduinoOTA.begin();
+  Serial.println("[OTA] Ready");
+
   server.begin();
   Serial.println("[Server] Ready");
 }
 
 void loop() {
+  ArduinoOTA.handle();
+
   static bool          wasCooling    = false;
   static unsigned long lastBroadcast = 0;
 

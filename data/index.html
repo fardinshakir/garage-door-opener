@@ -74,6 +74,8 @@
       animation: pulse-green 2.5s ease-in-out infinite;
     }
 
+    .status-dot.closed { background: var(--red); }
+
     .status-label {
       font-size: 13px;
       font-weight: 500;
@@ -82,7 +84,8 @@
       transition: color .4s;
     }
 
-    .status-label.open { color: var(--green); }
+    .status-label.open   { color: var(--green); }
+    .status-label.closed { color: var(--red); }
 
     /* ── PIN dots ──────────────────────────────────────────── */
     .pin-dots {
@@ -386,11 +389,17 @@
     });
   }
 
-  function updateStatusUI(open) {
+  function updateStatusUI(open, sensorOnline) {
     const dot   = document.getElementById('status-dot');
     const label = document.getElementById('status-label');
-    dot.className     = 'status-dot' + (open ? ' open' : '');
-    label.className   = 'status-label' + (open ? ' open' : '');
+    if (!sensorOnline) {
+      dot.className     = 'status-dot';
+      label.className   = 'status-label';
+      label.textContent = 'Sensor offline';
+      return;
+    }
+    dot.className     = 'status-dot' + (open ? ' open' : ' closed');
+    label.className   = 'status-label' + (open ? ' open' : ' closed');
     label.textContent = open ? 'Open' : 'Closed';
   }
 
@@ -400,8 +409,8 @@
   const evtSource = new EventSource('/api/events');
 
   evtSource.addEventListener('state', async e => {
-    const { open, cooldown, remaining } = JSON.parse(e.data);
-    updateStatusUI(open);
+    const { open, cooldown, remaining, sensorOnline } = JSON.parse(e.data);
+    updateStatusUI(open, sensorOnline);
 
     if (cooldown) {
       cooldownRemaining = remaining;
