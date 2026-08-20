@@ -4,6 +4,7 @@
 #include <SPIFFS.h>
 #include <ESPmDNS.h>
 #include <ArduinoOTA.h>
+#include <esp_task_wdt.h>
 
 #ifndef WIFI_SSID
 #  error "WIFI_SSID not set — copy .env.example to .env and fill it in"
@@ -21,6 +22,20 @@
 #define COOLDOWN_MS     20000
 
 #define HOSTNAME        "garage"
+#define WDT_TIMEOUT_S    10     // reboot if loop() stalls for this long
+#define WIFI_CHECK_MS    5000   // how often to check WiFi is still connected
+
+// SSE clients (the PWA's live status feed) can die silently — phone sleeps,
+// WiFi roams, app gets backgrounded — without ever sending a TCP FIN. Since
+// SSE is server→client only, ESPAsyncWebServer disables RX timeout on these
+// sockets, so a dead one sits open forever, slowly eating the small (~10)
+// lwIP socket pool until the server can't accept new connections at all.
+// TCP keepalive lets lwIP notice and reap them on its own.
+#define SSE_KEEPALIVE_MS     15000  // probe every 15s
+#define SSE_KEEPALIVE_COUNT  3      // give up (close) after 3 missed probes
+
+// Safety net: periodically reboot when idle, in case something still leaks.
+#define UPTIME_RESTART_MS  (3UL * 24 * 60 * 60 * 1000UL)  // 3 days
 // ─────────────────────────────────────────────────────────────────────────────
 
 static bool          g_pressing        = false;
@@ -92,6 +107,7 @@ void setup() {
   pinMode(BUTTON_PIN, OUTPUT);
   digitalWrite(BUTTON_PIN, LOW);
 
+  WiFi.setSleep(false);  // keep radio awake — avoids modem-sleep wake latency on first request
   WiFi.begin(WIFI_SSID, WIFI_PASSWORD);
   Serial.print("[WiFi] Connecting");
   while (WiFi.status() != WL_CONNECTED) {
@@ -128,6 +144,7 @@ void setup() {
 
   // SSE — send current state to each new client on connect
   events.onConnect([](AsyncEventSourceClient* client) {
+    client->client()->setKeepAlive(SSE_KEEPALIVE_MS, SSE_KEEPALIVE_COUNT);
     client->send(stateJson().c_str(), "state", millis(), 1000);
   });
   server.addHandler(&events);
@@ -182,10 +199,52 @@ void setup() {
 
   server.begin();
   Serial.println("[Server] Ready");
+
+#if ESP_ARDUINO_VERSION_MAJOR >= 3
+  esp_task_wdt_config_t wdtConfig = {
+    .timeout_ms = WDT_TIMEOUT_S * 1000,
+    .idle_core_mask = (1 << portNUM_PROCESSORS) - 1,
+    .trigger_panic = true
+  };
+  esp_task_wdt_init(&wdtConfig);
+#else
+  esp_task_wdt_init(WDT_TIMEOUT_S, true);
+#endif
+  esp_task_wdt_add(NULL);
+  Serial.println("[WDT] Watchdog armed");
+}
+
+void ensureWifiConnected() {
+  static unsigned long lastCheck = 0;
+  if (millis() - lastCheck < WIFI_CHECK_MS) return;
+  lastCheck = millis();
+
+  if (WiFi.status() != WL_CONNECTED) {
+    Serial.println("[WiFi] Disconnected — reconnecting");
+    WiFi.disconnect();
+    WiFi.reconnect();
+
+    unsigned long start = millis();
+    while (WiFi.status() != WL_CONNECTED && millis() - start < 10000) {
+      esp_task_wdt_reset();
+      delay(250);
+    }
+
+    if (WiFi.status() == WL_CONNECTED) {
+      Serial.printf("[WiFi] Reconnected: %s\n", WiFi.localIP().toString().c_str());
+      MDNS.end();
+      if (MDNS.begin(HOSTNAME))
+        Serial.printf("[mDNS] http://%s.local\n", HOSTNAME);
+    } else {
+      Serial.println("[WiFi] Reconnect attempt failed, will retry");
+    }
+  }
 }
 
 void loop() {
+  esp_task_wdt_reset();
   ArduinoOTA.handle();
+  ensureWifiConnected();
 
   static bool          wasCooling    = false;
   static unsigned long lastBroadcast = 0;
@@ -208,4 +267,12 @@ void loop() {
     lastBroadcast = millis();
   }
   wasCooling = isCooling;
+
+  // Self-heal: reboot after long uptime, but only when idle so we never
+  // interrupt a press/cooldown in progress.
+  if (millis() > UPTIME_RESTART_MS && !g_pressing && !isCooling) {
+    Serial.println("[Self-heal] Scheduled restart after long uptime");
+    delay(100);
+    ESP.restart();
+  }
 }
