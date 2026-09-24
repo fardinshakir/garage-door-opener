@@ -108,11 +108,26 @@ void setup() {
   digitalWrite(BUTTON_PIN, LOW);
 
   WiFi.setSleep(false);  // keep radio awake — avoids modem-sleep wake latency on first request
+  WiFi.mode(WIFI_STA);
   WiFi.begin(WIFI_SSID, WIFI_PASSWORD);
   Serial.print("[WiFi] Connecting");
+
+  // A single WiFi.begin() can fail its initial handshake against some mesh
+  // AP nodes (seen with Google Wifi/Nest Wifi satellites) and then never
+  // retry on its own, leaving the device stuck here forever. Kick the
+  // connection again periodically until it actually succeeds.
+  unsigned long connectAttemptStart = millis();
+  const unsigned long CONNECT_RETRY_MS = 8000;
   while (WiFi.status() != WL_CONNECTED) {
     delay(500);
     Serial.print('.');
+    if (millis() - connectAttemptStart >= CONNECT_RETRY_MS) {
+      Serial.print("\n[WiFi] Retrying connect");
+      WiFi.disconnect();
+      delay(100);
+      WiFi.begin(WIFI_SSID, WIFI_PASSWORD);
+      connectAttemptStart = millis();
+    }
   }
   Serial.printf("\n[WiFi] Connected: http://%s.local  (%s)\n",
                 HOSTNAME, WiFi.localIP().toString().c_str());
